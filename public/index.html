@@ -20,8 +20,9 @@
   <section id="login" class="login" hidden>
     <div class="card">
       <h1>NAS Beheer</h1>
-      <p class="muted-line">Log in met het wachtwoord van het paneel.</p>
+      <p class="muted-line">Log in met je eigen naam en wachtwoord.</p>
       <form id="login-form" class="stack">
+        <div class="field"><label for="login-name">Naam</label><input id="login-name" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
         <div class="field"><label for="password">Wachtwoord</label><input id="password" type="password" autocomplete="current-password" required></div>
         <p class="error" id="login-error" role="alert" hidden></p>
         <div class="actions"><button class="btn primary" type="submit">Inloggen</button></div>
@@ -32,7 +33,7 @@
   <!-- The panel -->
   <div id="panel" hidden>
     <header>
-      <div class="title"><h1>NAS Beheer</h1><span>Laboratoriumdiscounter · alleen bereikbaar op kantoor <button class="link" id="logout" type="button">Uitloggen</button></span></div>
+      <div class="title"><h1>NAS Beheer</h1><span>Laboratoriumdiscounter · alleen op kantoor · <span id="who"></span> <button class="link" id="logout" type="button">Uitloggen</button></span></div>
       <div class="tabs" role="tablist" aria-label="Kies een app" id="tabs"></div>
     </header>
     <main id="main"></main>

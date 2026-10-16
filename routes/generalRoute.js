@@ -1,6 +1,6 @@
 import express from 'express';
 import { callApp } from '../panel/appClient.js';
-import { panelGuard } from '../panel/guard.js';
+import { panelGuard, need } from '../panel/guard.js';
 import { checkAddress } from '../panel/addressCheck.js';
 
 // The tab "Algemeen": things that are the same for all apps.
@@ -17,10 +17,10 @@ const SHARED = {
     contactEmail: { label: 'Contactadres', valid: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) && v.length <= 200, problem: 'Dit is geen geldig e-mailadres.' },
 };
 
-export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = callApp, checkAddressFn = checkAddress }) {
+export function generalRoute({ store, sessions, audit, ngrok, baseDomain, callAppFn = callApp, checkAddressFn = checkAddress }) {
     const router = express.Router();
-    router.use(express.json({ limit: '10kb' }));
-    router.use(panelGuard(sessions));
+    router.use(express.json({ limit: '20kb' }));
+    router.use(panelGuard({ sessions, store }));
 
     // The status of every app (apps that do not answer are left out, with their name in "missing")
     async function statuses() {
@@ -68,7 +68,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         });
     });
 
-    router.post('/general/shop-test', async (req, res) => {
+    router.post('/general/shop-test', need('admin'), async (req, res) => {
         const domain = String(req.body?.domain || '').trim().toLowerCase();
         if (!SHARED.shopDomain.valid(domain)) return res.status(400).json({ message: SHARED.shopDomain.problem });
         const apps = (await statuses()).filter((a) => a.status?.sharedKeys?.shopDomain);
@@ -84,7 +84,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         res.json({ domain, results, ok: results.length > 0 && results.every((r) => r.ok) });
     });
 
-    router.put('/general/shared', async (req, res) => {
+    router.put('/general/shared', need('admin'), async (req, res) => {
         const name = String(req.body?.name || '');
         const value = String(req.body?.value || '').trim().toLowerCase();
         if (!Object.hasOwn(SHARED, name)) return res.status(400).json({ message: 'Onbekende instelling.' });
@@ -101,6 +101,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
                 results.push({ id: app.id, name: app.name, ok: false, message: 'Antwoordt niet. Niet opgeslagen.' });
             }
         }
+        audit.add(req.user, `${SHARED[name].label} gewijzigd voor alle apps`, `${value} (${results.map((r) => `${r.name}: ${r.ok ? 'opgeslagen' : 'niet opgeslagen'}`).join(', ')})`);
         res.json({ results, ok: results.every((r) => r.ok) });
     });
 
@@ -112,7 +113,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         return app;
     };
 
-    router.post('/addresses/:appId/reserve', async (req, res) => {
+    router.post('/addresses/:appId/reserve', need('admin'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
         if (!ngrok.configured) return res.status(400).json({ message: 'ngrok is nog niet ingesteld. Vraag de beheerder NGROK_API_KEY in te vullen (zie de handleiding).' });
@@ -125,6 +126,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
             const { target } = await ngrok.reserveDomain(domain);
             store.setAddress(app.id, { domain, target, active: false });
             console.log(`Fixed address ${domain} made at ngrok for ${app.name}`);
+            audit.add(req.user, `Vast adres aangemaakt voor ${app.name}`, domain);
             await keepTunnels({ store, ngrok }).catch(() => {});
             res.json({ ok: true, domain, target });
         } catch (error) {
@@ -133,7 +135,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         }
     });
 
-    router.post('/addresses/:appId/check', async (req, res) => {
+    router.post('/addresses/:appId/check', need('admin'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
         const address = store.addresses()[app.id];
@@ -142,7 +144,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         res.json(await checkAddressFn(address));
     });
 
-    router.post('/addresses/:appId/use', async (req, res) => {
+    router.post('/addresses/:appId/use', need('admin'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
         const address = store.addresses()[app.id];
@@ -151,6 +153,7 @@ export function generalRoute({ store, sessions, ngrok, baseDomain, callAppFn = c
         if (!check.dns || !check.https) return res.status(400).json({ message: 'Het adres werkt nog niet. Controleer het eerst.' });
         store.setAddress(app.id, { ...address, active: true });
         console.log(`${app.name} now uses the fixed address ${address.domain}`);
+        audit.add(req.user, `${app.name} gebruikt nu een vast adres`, address.domain);
         res.json({ ok: true, domain: address.domain });
     });
 

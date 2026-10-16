@@ -27,9 +27,10 @@ On Windows PowerShell use `npm.cmd` or `node`.
 2. **Admin keys never reach the browser.** `store.apps()` (used for the page) leaves the key out; keep it that way.
 3. **Every `/api` call needs a login; every change also needs `X-Panel: 1`.** Keep the "attacks" tests passing and add one for every new input.
 4. **Never `innerHTML`** in `public/app.js`: build with `h()` (textContent). Nothing loaded from outside (CSP `'self'`).
-5. **The panel never touches Docker.** On/off and settings go through the app's own admin routes.
-6. **Secrets stay secret.** Never print `.env` values or `data/panel.json`; never commit them.
-7. Nothing on the NAS changes without the owner's OK.
+5. **The panel never touches Docker.** On/off and settings go through the app's own admin routes. Only the updater (`updater/server.mjs`) has the Docker socket: it runs fixed `docker compose pull/up -d --no-build` commands for the fixed list in `UPDATE_APPS`, only when the panel asks with `UPDATER_KEY`, never on its own. Never put request data into its commands, and never give it a port.
+6. **Updates come only from the branch `release`** (`.github/workflows/release.yml`: tests first, then the image to ghcr.io). Pushing to `release` is not going live: a beheerder clicks "Bijwerken" in the panel.
+7. **Secrets stay secret.** Never print `.env` values or `data/panel.json`; never commit them.
+8. Nothing on the NAS changes without the owner's OK.
 
 ## How to check your work
 

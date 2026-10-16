@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const include = ['Dockerfile', 'docker-compose.yml', '.dockerignore', '.env.example', 'package.json', 'package-lock.json', 'index.js', 'server.js', 'config.js', 'ngrok.yml', 'README.md', 'docs', 'panel', 'public', 'routes'];
+const include = ['Dockerfile', 'docker-compose.yml', '.dockerignore', '.env.example', 'package.json', 'package-lock.json', 'index.js', 'server.js', 'config.js', 'ngrok.yml', 'README.md', 'docs', 'panel', 'public', 'routes', 'updater'];
 
 const folder = path.join('build', 'nas-beheer');
 fs.rmSync('build', { recursive: true, force: true });

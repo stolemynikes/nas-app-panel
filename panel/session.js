@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 
-// Login session: a signed cookie that says until when the login is valid. Nothing else is stored in it.
+// Login session: a signed cookie with who is logged in and until when. Nothing else is stored in it.
 // HttpOnly (scripts cannot read it) and SameSite=Strict (other websites cannot use it).
+// The user's "session version" is in it too: after a password or role change it no longer matches,
+// so every other login of that user stops working.
 
 const COOKIE = 'nasbeheer';
 
@@ -9,20 +11,24 @@ export function createSessions({ secret, hours }) {
     const sign = (value) => crypto.createHmac('sha256', secret()).update(value).digest('base64url');
 
     return {
-        start(res) {
-            const value = String(Date.now() + hours * 3600_000);
+        start(res, user, version) {
+            const value = `${user}.${version}.${Date.now() + hours * 3600_000}`;
             res.cookie(COOKIE, `${value}.${sign(value)}`, { httpOnly: true, sameSite: 'strict', maxAge: hours * 3600_000, path: '/' });
         },
         end(res) {
             res.clearCookie(COOKIE, { path: '/' });
         },
-        isLoggedIn(req) {
+        // { userId, version } of a valid, not expired cookie, otherwise null
+        read(req) {
             const raw = cookieValue(req.get('cookie'), COOKIE);
-            const [value, signature] = String(raw || '').split('.');
-            if (!value || !signature) return false;
-            const expected = Buffer.from(sign(value));
+            const parts = String(raw || '').split('.');
+            if (parts.length !== 4) return null;
+            const [userId, version, expires, signature] = parts;
+            const expected = Buffer.from(sign(`${userId}.${version}.${expires}`));
             const given = Buffer.from(signature);
-            return given.length === expected.length && crypto.timingSafeEqual(given, expected) && Number(value) > Date.now();
+            if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
+            if (!(Number(expires) > Date.now())) return null;
+            return { userId, version: Number(version) };
         },
     };
 }

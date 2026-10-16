@@ -171,13 +171,35 @@ in de map `nas-beheer` het commando `node scripts/makeNasPackage.js` uitvoeren. 
 
 1. Open op een pc op kantoor de browser (Edge of Chrome).
 2. Typ in de adresbalk: `http://<ip-van-de-nas>:8081`. Het ip-adres van de NAS is hetzelfde als waarmee je op de NAS inlogt, maar dan met `:8081` erachter. Bijvoorbeeld `http://192.168.1.20:8081`.
-3. Log in met het wachtwoord uit `PANEL_PASSWORD`.
-4. Je ziet bovenaan de tabbladen **Facturen** en **Kasper (chat)**. Staat er bij een app "niet bereikbaar"? Kijk in Deel 3.
-5. Tip: maak een bladwijzer (**Ctrl+D**), dan hoef je het adres niet te onthouden.
+3. Log in met de naam `beheerder` en het wachtwoord uit `PANEL_PASSWORD`.
+4. Maak voor iedere collega een eigen account aan (zie Deel 2, "Gebruikers"). Gebruik `beheerder` niet samen met anderen.
+5. Je ziet bovenaan de tabbladen **Facturen** en **Kasper (chat)**. Staat er bij een app "niet bereikbaar"? Kijk in Deel 3.
+6. Tip: maak een bladwijzer (**Ctrl+D**), dan hoef je het adres niet te onthouden.
 
 ### Stap 7 · Opruimen
 
-Het paneel heeft het wachtwoord nu zelf (versleuteld) opgeslagen. Open de `.env` van **docker** → **nas-beheer** nog één keer (zie **A**) en maak de regel leeg: `PANEL_PASSWORD=`. Bouwen is daarna niet nodig.
+Het paneel heeft het wachtwoord van `beheerder` nu zelf (versleuteld) opgeslagen. Open de `.env` van **docker** → **nas-beheer** nog één keer (zie **A**) en maak de regel leeg: `PANEL_PASSWORD=`. Bouwen is daarna niet nodig.
+
+### Stap 8 · Updates via GitHub (eenmalig, door de beheerder)
+
+Hierna hoef je nooit meer bestanden naar de NAS te kopiëren. Een nieuwe versie gaat zo:
+
+1. De ontwikkelaar zet de wijziging op GitHub, in de branch `release`.
+2. GitHub test alles en maakt de nieuwe versie klaar. Op de NAS verandert nog niets.
+3. In het paneel: **Paneel** → **Updates** → **Zoek nieuwe versie**, en daarna **Bijwerken**. Alleen die app start opnieuw; instellingen, gegevens en facturen blijven staan.
+
+Eenmalig instellen:
+
+1. **Een leessleutel voor GitHub maken.** Ga op github.com naar je profielfoto → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)** → **Generate new token (classic)**. Naam: `NAS lezen`. Vink **alleen** `read:packages` aan. Kies een vervaldatum (bijvoorbeeld een jaar) en klik op **Generate token**. Kopieer de code (begint met `ghp_`) naar je wachtwoordkluis.
+2. **Een updatersleutel maken**, net als de beheersleutels in Stap 2 (de regel in PowerShell).
+3. **De `.env` van docker → nas-beheer aanvullen** (zie **A**):
+   - `UPDATER_KEY=` met de updatersleutel
+   - `GHCR_USER=stolemynikes`
+   - `GHCR_TOKEN=` met de leessleutel van GitHub
+4. **Eén laatste keer bestanden kopiëren:** de nieuwe `docker-compose.yml` van Facturen, Kasper en het paneel (daarin staat nu waar de versies van GitHub vandaan komen, en de updater). Bouw daarna alle drie nog één keer (zie **B**, of met `sudo docker compose -p <project> up -d --build`).
+5. In het paneel staat onder **Paneel** → **Updates** nu per app de versie. Staat er "zelf gebouwde versie", dan komt hij na de eerste keer **Bijwerken** van GitHub.
+
+> De updater (container `nas-beheer-updater`) is het enige onderdeel dat Docker op de NAS mag bedienen. Hij doet niets uit zichzelf, heeft geen poort naar buiten, werkt alleen met de updatersleutel en kent alleen Facturen, Kasper en het paneel.
 
 ---
 
@@ -216,6 +238,48 @@ Het **Logboek** laat zien wat de apps de afgelopen 30 dagen gedaan hebben, nieuw
 Het tabblad **Logboek** bovenaan toont alle apps samen; de knop **Logboek** bij een app (naast Overzicht en Instellingen) toont alleen die app.
 Zoek bijvoorbeeld op een ordernummer (zoals `LD1012`). Met "Alleen problemen" zie je alleen wat er misging.
 "Technische details tonen" is voor de beheerder.
+
+Bij **Kasper** staat naast Overzicht de knop **Cijfers**: hoeveel gesprekken er waren (vandaag, deze week, deze kalendermaand), hoeveel orders en producten er zijn opgezocht, hoe vaak het contactformulier is gebruikt, hoeveel **tokens** de AI heeft gebruikt, en wat dat ongeveer **kost** (in dollars, zoals Anthropic het rekent). Daaronder een balkje per dag voor de laatste 30 dagen. Er worden alleen aantallen bijgehouden, nooit wat klanten schrijven.
+
+De kosten zijn een schatting. Een beheerder vult daarvoor één keer de prijzen in (Kasper start daarvoor niet opnieuw): Kasper → **Instellingen** → **Voor de beheerder** → "Prijs voor lezen" en "Prijs voor schrijven" (dollar per miljoen tokens, te vinden op de prijzenpagina van Anthropic bij het gebruikte AI-model). De echte rekening staat in de Anthropic Console.
+
+**Meldingen.** Rechtsonder verschijnen korte meldingen, bijvoorbeeld "Kasper is opnieuw gestart" (een beheerder ziet ook wie het deed en wat er veranderd is), "Facturen antwoordt niet" of "Opgeslagen". Ze verdwijnen vanzelf; met × sluit je ze meteen.
+
+**Altijd actueel.** De pagina ververst zichzelf elke 20 seconden, behalve als je iets aan het invullen bent. Wordt het paneel bijgewerkt, dan neemt de pagina de nieuwe versie vanzelf over en blijf je waar je was.
+
+### Kasper: het chatadres automatisch in de webshop
+
+Zonder vast adres krijgt Kasper na elke herstart een nieuw tijdelijk adres. Dan verdwijnt de chatknop uit de webshop tot iemand de script-tag in het thema aanpast. Kasper kan dat zelf doen. Eenmalig, door de beheerder:
+
+1. **Thema aanpassen.** Shopify → **Online Store** → **Themes** → bij het thema op **…** → **Edit code** → `layout/theme.liquid`. Vervang de oude regel met `widget.js` door:
+   ```
+   {% if shop.metafields.kasper.widget_url %}<script src="{{ shop.metafields.kasper.widget_url.value }}/widget.js" defer></script>{% endif %}
+   ```
+   Klik op **Save**.
+2. **Aanzetten.** In het paneel: Kasper → **Instellingen** → "Moet Kasper zijn adres zelf in de webshop zetten?" → **Ja, automatisch** → Opslaan.
+3. **Controleren.** Kasper → Instellingen → **Koppelingen** → "Chatadres in de webshop" moet na een paar minuten op **automatisch** staan. Staat er **geen toegang**, dan mag de Shopify-app van Kasper dit nog niet schrijven: de beheerder moet die app een extra recht geven (metafields schrijven) en de app opnieuw goedkeuren in de winkel.
+
+Kasper schrijft alleen dit ene veld (`kasper.widget_url`) en alleen een adres dat eindigt op `.trycloudflare.com` of op ons eigen domein.
+
+### Gebruikers, rollen en je eigen wachtwoord
+
+Iedereen logt in met een eigen naam en wachtwoord. Er zijn drie rollen:
+
+- **Alleen kijken** · mag alles zien, maar niets veranderen.
+- **Medewerker** · mag de apps bedienen: instellingen, opnieuw proberen, opnieuw starten, aan/uit, Exact koppelen. Niet: Algemeen, technische instellingen, gebruikers.
+- **Beheerder** · mag alles, ook Algemeen, technische instellingen, gebruikers en de actielog.
+
+**Je eigen wachtwoord wijzigen** (iedereen): tabblad **Paneel** → **Mijn wachtwoord**. Vul je huidige wachtwoord in en twee keer het nieuwe (minstens 12 tekens). Na het wijzigen werkt het oude wachtwoord nergens meer.
+
+**Een collega toevoegen** (beheerder):
+1. Tabblad **Paneel** → **Gebruikers** → **Gebruiker toevoegen**.
+2. Vul een naam in (kleine letters, bijvoorbeeld `jan`), kies een rol en een tijdelijk wachtwoord.
+3. Geef naam en tijdelijk wachtwoord persoonlijk door, niet per mail.
+4. Bij het eerste inloggen moet de collega meteen een eigen wachtwoord kiezen.
+
+Bij elke gebruiker kan een beheerder de **Rol** veranderen, een **Nieuw wachtwoord** geven (als iemand het vergeten is) of de gebruiker **Verwijderen**. Er blijft altijd minstens één beheerder.
+
+**Actielog** (beheerder): onder **Paneel** zie je wie wat heeft gedaan en wanneer, een jaar lang. Bijvoorbeeld "jan · Instellingen Facturen · Mailen: Ja → Nee". Wachtwoorden en sleutels staan er nooit in.
 
 ### Tabblad Algemeen: wat voor alle apps geldt
 
@@ -256,15 +320,19 @@ Zonder vast adres krijgt een app een **tijdelijk** adres, dat bij elke herstart 
 
 ## Deel 3 · Wat te doen als…
 
-**…ik het wachtwoord niet meer weet?**
-Vraag het aan een collega die het wel weet. Die kan het ook veranderen: tabblad **Paneel** → **Wachtwoord van het paneel**.
+**…ik mijn wachtwoord niet meer weet?**
+Vraag een beheerder. Die geeft je een tijdelijk wachtwoord: **Paneel** → **Gebruikers** → bij jouw naam **Nieuw wachtwoord**. Daarna kies je bij het inloggen een eigen wachtwoord.
 
-**…niemand het wachtwoord meer weet?**
+**…er staat "Dit mag jouw account niet"?**
+Jouw rol mag dat niet. Vraag een beheerder om het te doen, of om je rol te veranderen.
+
+**…geen enkele beheerder het wachtwoord meer weet?**
+Dit zet het wachtwoord van de gebruiker `beheerder` terug.
 1. Open de `.env` van **docker** → **nas-beheer** (zie **A**).
 2. Zet achter `PANEL_PASSWORD=` een nieuw wachtwoord (minstens 12 tekens).
 3. Zet achter `PANEL_PASSWORD_RESET=` het woord `true`. Staat die regel er niet, zet dan onderaan `PANEL_PASSWORD_RESET=true`.
 4. Sla op, zet het bestand terug, en bouw het project `nas-beheer` opnieuw (zie **B**).
-5. Log in met het nieuwe wachtwoord.
+5. Log in met de naam `beheerder` en het nieuwe wachtwoord.
 6. Open `.env` nog een keer en maak beide regels weer leeg: `PANEL_PASSWORD=` en `PANEL_PASSWORD_RESET=`. Sla op en zet terug. Bouwen is niet nodig.
 
 **…er staat "Te vaak een verkeerd wachtwoord"?**

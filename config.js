@@ -31,5 +31,9 @@ export const NGROK_API_KEY = env('NGROK_API_KEY');
 export const NGROK_AGENT_URL = env('NGROK_AGENT_URL', 'http://nas-beheer-ngrok:4040');
 export const BASE_DOMAIN = env('BASE_DOMAIN', 'laboratoriumdiscounter.nl');
 
+// The updater (container nas-beheer-updater): starts new versions of the apps when a beheerder asks
+export const UPDATER_URL = env('UPDATER_URL', 'http://nas-beheer-updater:8090');
+export const UPDATER_KEY = env('UPDATER_KEY');
+
 // How long a login lasts
 export const SESSION_HOURS = Number(env('SESSION_HOURS', '12'));

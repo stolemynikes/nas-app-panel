@@ -1,24 +1,24 @@
 import express from 'express';
 import { callApp } from '../panel/appClient.js';
-import { panelGuard } from '../panel/guard.js';
+import { panelGuard, need, can } from '../panel/guard.js';
 
 // The panel's own API for the page in the browser. Everything needs a login (see panel/guard.js).
 //
-//   GET    /api/apps                         apps with their status
-//   GET    /api/apps/:id/status|settings     from that app
-//   PUT    /api/apps/:id/settings            save settings (the app restarts)
-//   POST   /api/apps/:id/enabled             switch on or off
-//   POST   /api/apps/:id/restart             restart the app
-//   POST   /api/apps/:id/actions/:action     e.g. retry an order, connect Exact
-//   GET    /api/log                          the logbooks of all apps together
-//   POST   /api/apps                         add an app        DELETE /api/apps/:id   remove it from the panel
-//   POST   /api/password                     change the panel password
+//   GET    /api/apps                         apps with their status                          (everyone)
+//   GET    /api/apps/:id/status|settings     from that app                                   (everyone)
+//   GET    /api/log                          the logbooks of all apps together               (everyone)
+//   PUT    /api/apps/:id/settings            save settings (the app restarts)                (staff; technical ones admin)
+//   POST   /api/apps/:id/enabled             switch on or off                                (staff)
+//   POST   /api/apps/:id/restart             restart the app                                 (staff)
+//   POST   /api/apps/:id/actions/:action     e.g. retry an order, connect Exact              (staff)
+//   POST   /api/apps                         add an app        DELETE /api/apps/:id          (admin)
+//
+// Every change goes into the action log (panel/audit.js), never with secrets.
 
-export function appsRoute({ store, sessions, callAppFn = callApp }) {
+export function appsRoute({ store, sessions, audit, callAppFn = callApp }) {
     const router = express.Router();
     router.use(express.json({ limit: '20kb' }));
-
-    router.use(panelGuard(sessions));
+    router.use(panelGuard({ sessions, store }));
 
     const appOr404 = (req, res) => {
         const app = store.app(req.params.id);
@@ -26,15 +26,21 @@ export function appsRoute({ store, sessions, callAppFn = callApp }) {
         return app;
     };
 
-    // Forwards a call and passes the app's answer on; an app that does not answer gets a clear message
+    // Forwards a call and passes the app's answer on; an app that does not answer gets a clear message.
+    // Returns true when the app said yes (for the action log).
     async function forward(res, app, call) {
         try {
             const { status, data } = await callAppFn(app, call);
             // The app answers 404 for a wrong key (on purpose the same as "does not exist")
-            if (status === 404) return res.status(502).json({ message: `${app.name} geeft geen toegang of kent deze vraag niet. Klopt de beheersleutel, en is de app bijgewerkt?` });
-            return res.status(status).json(data);
+            if (status === 404) {
+                res.status(502).json({ message: `${app.name} geeft geen toegang of kent deze vraag niet. Klopt de beheersleutel, en is de app bijgewerkt?` });
+                return false;
+            }
+            res.status(status).json(data);
+            return status === 200;
         } catch {
-            return res.status(502).json({ message: `${app.name} antwoordt niet. Staat de app aan op de NAS?` });
+            res.status(502).json({ message: `${app.name} antwoordt niet. Staat de app aan op de NAS?` });
+            return false;
         }
     }
 
@@ -63,32 +69,65 @@ export function appsRoute({ store, sessions, callAppFn = callApp }) {
         if (app) forward(res, app, { path: '/settings' });
     });
 
-    router.put('/apps/:id/settings', (req, res) => {
+    router.put('/apps/:id/settings', need('staff'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
-        console.log(`Settings of ${app.name} changed: ${Object.keys(req.body?.values || {}).join(', ')}`);
-        forward(res, app, { method: 'PUT', path: '/settings', body: { values: req.body?.values } });
+        const values = req.body?.values;
+        if (!values || typeof values !== 'object' || Array.isArray(values)) return res.status(400).json({ message: 'Er is niets om op te slaan.' });
+
+        // The current settings: who may change what, and the old values for the action log
+        let fields;
+        try {
+            const { status, data } = await callAppFn(app, { path: '/settings' });
+            if (status !== 200) throw new Error();
+            fields = data.fields;
+        } catch {
+            return res.status(502).json({ message: `${app.name} antwoordt niet. Er is niets opgeslagen.` });
+        }
+        const byKey = new Map(fields.map((f) => [f.key, f]));
+        for (const key of Object.keys(values)) {
+            const field = byKey.get(key);
+            if (!field) return res.status(400).json({ message: `${key} kan hier niet worden aangepast.` });
+            // Shared settings go through tab Algemeen; technical ones only for a beheerder
+            if ((field.shared || field.advanced) && !can(req.user, 'admin')) return res.status(403).json({ message: `"${field.label}" mag alleen een beheerder aanpassen.` });
+        }
+
+        const ok = await forward(res, app, { method: 'PUT', path: '/settings', body: { values } });
+        if (ok) {
+            const show = (field, value) => (field.type === 'secret' ? 'nieuwe waarde' : field.choices?.find((c) => c.value === value)?.title || value || '(leeg)');
+            const changes = Object.entries(values).map(([key, value]) => {
+                const field = byKey.get(key);
+                return field.type === 'secret' ? `${field.label}: nieuwe waarde` : `${field.label}: ${show(field, field.value)} → ${show(field, String(value))}`;
+            });
+            audit.add(req.user, `Instellingen ${app.name}`, changes.join('; '));
+        }
     });
 
-    router.post('/apps/:id/enabled', (req, res) => {
+    router.post('/apps/:id/enabled', need('staff'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
-        console.log(`${app.name} switched ${req.body?.enabled ? 'on' : 'off'}`);
-        forward(res, app, { method: 'POST', path: '/enabled', body: { enabled: req.body?.enabled === true } });
+        const enabled = req.body?.enabled === true;
+        if (await forward(res, app, { method: 'POST', path: '/enabled', body: { enabled } })) audit.add(req.user, `${app.name} ${enabled ? 'aangezet' : 'uitgezet'}`);
     });
 
-    router.post('/apps/:id/restart', (req, res) => {
+    router.post('/apps/:id/restart', need('staff'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
-        console.log(`${app.name} restarted`);
-        forward(res, app, { method: 'POST', path: '/restart' });
+        if (await forward(res, app, { method: 'POST', path: '/restart' })) audit.add(req.user, `${app.name} opnieuw gestart`);
     });
 
-    router.post('/apps/:id/actions/:action', (req, res) => {
+    router.post('/apps/:id/actions/:action', need('staff'), async (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
-        if (!/^[a-z0-9-]{1,40}$/.test(req.params.action)) return res.status(400).json({ message: 'Onbekende actie.' });
-        forward(res, app, { method: 'POST', path: `/actions/${req.params.action}`, body: req.body || {} });
+        const action = req.params.action;
+        if (!/^[a-z0-9-]{1,40}$/.test(action)) return res.status(400).json({ message: 'Onbekende actie.' });
+        const body = req.body || {};
+        if (await forward(res, app, { method: 'POST', path: `/actions/${action}`, body })) {
+            // Only what helps to understand the action; never the Exact login address (it holds a code)
+            const detail = action === 'retry' ? `order-id ${String(body.orderId || '').slice(0, 20)}` : action === 'shopify-test' ? String(body.domain || '').slice(0, 80) : '';
+            const names = { retry: 'Order opnieuw geprobeerd', 'exact-connect': 'Exact koppelen gestart', 'exact-code': 'Exact gekoppeld', 'test-mail': 'Testmail verstuurd', 'shopify-test': 'Webshop getest' };
+            audit.add(req.user, `${app.name}: ${names[action] || action}`, detail);
+        }
     });
 
     // All logbooks together, newest first, each line marked with its app
@@ -111,7 +150,7 @@ export function appsRoute({ store, sessions, callAppFn = callApp }) {
         res.json({ entries: entries.slice(0, 400), missing });
     });
 
-    router.post('/apps', async (req, res) => {
+    router.post('/apps', need('admin'), async (req, res) => {
         const name = String(req.body?.name || '').trim().slice(0, 60);
         const url = String(req.body?.url || '').trim();
         const key = String(req.body?.key || '').trim();
@@ -128,25 +167,15 @@ export function appsRoute({ store, sessions, callAppFn = callApp }) {
             return res.status(400).json({ message: 'Geen antwoord op dit adres. Staat de app aan en zit hij in het netwerk nas-apps?' });
         }
         store.addApp(app);
-        console.log(`App added to the panel: ${name}`);
+        audit.add(req.user, 'App toegevoegd aan het paneel', `${name} (${app.url})`);
         res.json({ ok: true, id });
     });
 
-    router.delete('/apps/:id', (req, res) => {
+    router.delete('/apps/:id', need('admin'), (req, res) => {
         const app = appOr404(req, res);
         if (!app) return;
         store.removeApp(app.id);
-        console.log(`App removed from the panel: ${app.name}`);
-        res.json({ ok: true });
-    });
-
-    router.post('/password', (req, res) => {
-        const current = String(req.body?.current || '');
-        const next = String(req.body?.next || '');
-        if (!store.checkPassword(current)) return res.status(400).json({ message: 'Het huidige wachtwoord klopt niet.' });
-        if (next.length < 12) return res.status(400).json({ message: 'Kies een wachtwoord van minstens 12 tekens.' });
-        store.setPassword(next);
-        console.log('Panel password changed');
+        audit.add(req.user, 'App uit het paneel gehaald', app.name);
         res.json({ ok: true });
     });
 

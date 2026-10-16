@@ -8,6 +8,7 @@ import { createStore, hashPassword, verifyPassword } from '../panel/store.js';
 import { createSessions } from '../panel/session.js';
 import { createServer } from '../server.js';
 import { callApp } from '../panel/appClient.js';
+import { createAudit } from '../panel/audit.js';
 
 const PASSWORD = 'een-lang-wachtwoord';
 const KEY = 'k'.repeat(40);
@@ -25,14 +26,15 @@ async function startPanel({ answer } = {}) {
         if (call.path.startsWith('/log')) return { status: 200, data: { entries: [{ time: '2026-10-16T10:00:00Z', level: 'ok', plain: 'Factuur gemaakt.', tech: 'x' }] } };
         return { status: 200, data: { ok: true } };
     };
-    const server = createServer({ store, sessions, callAppFn }).listen(0);
+    const audit = createAudit(path.join(dir, 'audit'));
+    const server = createServer({ store, sessions, audit, callAppFn }).listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
-    return { store, calls, base, dir, close: () => server.close() };
+    return { store, calls, base, dir, audit, close: () => server.close() };
 }
 
-async function login(base, password = PASSWORD) {
-    const response = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) });
+async function login(base, password = PASSWORD, name = 'beheerder') {
+    const response = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password }) });
     const cookie = (response.headers.get('set-cookie') || '').split(';')[0];
     return { response, cookie };
 }
@@ -51,7 +53,7 @@ test('store: panel.json keeps no plain password and survives a restart', async (
     const raw = fs.readFileSync(path.join(p.dir, 'panel.json'), 'utf8');
     assert.ok(!raw.includes(PASSWORD));
     const again = createStore(p.dir, { firstPassword: 'iets-anders-nu', startApps: [] });
-    assert.equal(again.checkPassword(PASSWORD), true, 'the .env password only counts the first time');
+    assert.ok(again.checkLogin('beheerder', PASSWORD), 'the .env password only counts the first time');
     assert.equal(again.apps().length, 1);
     assert.equal(again.apps()[0].key, undefined, 'the list for the page never holds the key');
 });
@@ -62,8 +64,8 @@ test('store: a new key in .env wins, and the password can be reset', async () =>
     const newKey = 'n'.repeat(40);
     const again = createStore(p.dir, { firstPassword: 'nieuw-wachtwoord-9', resetPassword: true, startApps: [{ id: 'facturen', name: 'Facturen', url: 'http://factuur-app:8080', key: newKey }] });
     assert.equal(again.app('facturen').key, newKey);
-    assert.equal(again.checkPassword('nieuw-wachtwoord-9'), true);
-    assert.equal(again.checkPassword(PASSWORD), false);
+    assert.ok(again.checkLogin('beheerder', 'nieuw-wachtwoord-9'));
+    assert.equal(again.checkLogin('beheerder', PASSWORD), null);
 });
 
 test('without login: no API, no logbook', async () => {
@@ -110,7 +112,8 @@ test('a forged or expired cookie does not work', async () => {
         assert.equal((await fetch(`${p.base}/api/apps`, { headers: { cookie: forged } })).status, 401);
         const old = createSessions({ secret: () => p.store.sessionSecret, hours: -1 });
         let cookie = '';
-        old.start({ cookie: (name, value) => (cookie = `${name}=${value}`) });
+        const me = p.store.users()[0];
+        old.start({ cookie: (name, value) => (cookie = `${name}=${value}`) }, me.id, p.store.sessionVersion(me.id));
         assert.equal((await fetch(`${p.base}/api/apps`, { headers: { cookie } })).status, 401);
     } finally {
         p.close();
@@ -218,11 +221,11 @@ test('password change: needs the current password and 12 characters', async () =
     try {
         const { cookie } = await login(p.base);
         const headers = { cookie, 'x-panel': '1', 'content-type': 'application/json' };
-        const change = (body) => fetch(`${p.base}/api/password`, { method: 'POST', headers, body: JSON.stringify(body) });
+        const change = (body) => fetch(`${p.base}/api/me/password`, { method: 'POST', headers, body: JSON.stringify(body) });
         assert.equal((await change({ current: 'fout', next: 'nieuw-wachtwoord-1' })).status, 400);
         assert.equal((await change({ current: PASSWORD, next: 'kort' })).status, 400);
         assert.equal((await change({ current: PASSWORD, next: 'nieuw-wachtwoord-1' })).status, 200);
-        assert.equal(p.store.checkPassword('nieuw-wachtwoord-1'), true);
+        assert.ok(p.store.checkLogin('beheerder', 'nieuw-wachtwoord-1'));
     } finally {
         p.close();
     }

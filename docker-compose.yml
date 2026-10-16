@@ -6,6 +6,8 @@
 
 services:
   nas-beheer:
+    # The image GitHub builds after a push to the branch release (Paneel -> Updates). build: . only when building here yourself.
+    image: ghcr.io/stolemynikes/nas-beheer:release
     build: .
     container_name: nas-beheer
     restart: unless-stopped
@@ -39,6 +41,31 @@ services:
     networks:
       - nas-apps
 
+  # The updater (updater/server.mjs): downloads and starts new versions of the apps, only when a beheerder
+  # clicks "Bijwerken" in the panel. It is the only container that may use Docker on the NAS (the socket below
+  # gives full control over Docker), so it does nothing on its own, has no ports, needs UPDATER_KEY,
+  # and only knows the apps in UPDATE_APPS.
+  updater:
+    image: ghcr.io/stolemynikes/nas-beheer-updater:release
+    build:
+      context: .
+      dockerfile: updater/Dockerfile
+    container_name: nas-beheer-updater
+    restart: unless-stopped
+    environment:
+      UPDATER_KEY: ${UPDATER_KEY}
+      GHCR_USER: ${GHCR_USER}
+      GHCR_TOKEN: ${GHCR_TOKEN}
+      UPDATE_APPS: facturen=factuur-app/factuur-app,kasper=casper/casper,paneel=nas-beheer/nas-beheer
+      PROJECTS_DIR: /volume1/docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The same path as on the NAS: Docker reads the project folders (docker-compose.yml, .env) from here
+      - /volume1/docker:/volume1/docker
+      - updater-login:/root/.docker
+    networks:
+      - nas-apps
+
 networks:
   nas-apps:
     external: true
@@ -46,3 +73,4 @@ networks:
 
 volumes:
   beheer-data:
+  updater-login:

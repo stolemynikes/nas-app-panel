@@ -9,6 +9,7 @@ import { createServer } from '../server.js';
 import { createNgrok } from '../panel/ngrok.js';
 import { checkAddress } from '../panel/addressCheck.js';
 import { keepTunnels } from '../routes/generalRoute.js';
+import { createAudit } from '../panel/audit.js';
 
 const KEY = 'k'.repeat(40);
 const headers = { 'x-panel': '1', 'content-type': 'application/json' };
@@ -32,12 +33,15 @@ async function startPanel({ ngrok = { configured: false }, checkAddressFn, broke
         if (call.path === '/actions/shopify-test') return { status: 200, data: { ok: true, name: 'Lab', message: 'Verbinding gelukt.' } };
         return { status: 200, data: { ok: true } };
     };
-    const sessions = { isLoggedIn: () => true };
-    const server = createServer({ store, sessions, callAppFn, ngrok, checkAddressFn }).listen(0);
+    // Always logged in as the beheerder (logging in itself is tested in panel.test.js)
+    const admin = store.users()[0];
+    const sessions = { read: () => ({ userId: admin.id, version: store.sessionVersion(admin.id) }) };
+    const audit = createAudit(path.join(dir, 'audit'));
+    const server = createServer({ store, sessions, audit, callAppFn, ngrok, checkAddressFn }).listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
     const send = (method, url, body) => fetch(`${base}${url}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    return { store, calls, base, send, close: () => server.close() };
+    return { store, calls, base, send, audit, close: () => server.close() };
 }
 
 test('general: one TEST/LIVE row per part (the webshop once), with the app to go to', async () => {
