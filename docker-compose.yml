@@ -1,0 +1,48 @@
+# NAS Beheer on the Synology NAS. Container Manager -> Project -> Create -> choose this folder.
+# Step by step: docs/installatie-nl.md
+#
+# Only for the office network: port 8081 is opened on the NAS, NEVER forward it in the router,
+# and no tunnel goes to this container.
+
+services:
+  nas-beheer:
+    build: .
+    container_name: nas-beheer
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8081
+      DATA_DIR: /app/data
+      TZ: Europe/Amsterdam
+      NGROK_AGENT_URL: http://nas-beheer-ngrok:4040
+    ports:
+      - "8081:8081"
+    volumes:
+      - beheer-data:/app/data
+    networks:
+      # Shared with the apps (create it once: Container Manager -> Network -> Add -> nas-apps)
+      - nas-apps
+
+  # The fixed internet addresses (tab Algemeen). Only starts with COMPOSE_PROFILES=ngrok in .env.
+  # The panel tells this container which address goes to which app; its control port (4040)
+  # is only reachable inside the network nas-apps, never from the office or the internet.
+  ngrok:
+    image: ngrok/ngrok:3
+    container_name: nas-beheer-ngrok
+    restart: unless-stopped
+    profiles: ["ngrok"]
+    command: start --none --config /etc/ngrok/ngrok.yml
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    volumes:
+      - ./ngrok.yml:/etc/ngrok/ngrok.yml:ro
+    networks:
+      - nas-apps
+
+networks:
+  nas-apps:
+    external: true
+    name: nas-apps
+
+volumes:
+  beheer-data:

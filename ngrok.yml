@@ -1,0 +1,5 @@
+# Settings of the ngrok container (docker-compose.yml). The authtoken comes from NGROK_AUTHTOKEN in .env.
+# The control port listens inside the Docker network only, so the panel can start the tunnels.
+version: "2"
+web_addr: 0.0.0.0:4040
+log: stdout

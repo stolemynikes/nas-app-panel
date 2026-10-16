@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAS Beheer</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.5 2.5L16 9.5"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-bad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 11v5M12 8h.01"/></symbol>
+</svg>
+
+<div class="wrap">
+  <!-- Login -->
+  <section id="login" class="login" hidden>
+    <div class="card">
+      <h1>NAS Beheer</h1>
+      <p class="muted-line">Log in met het wachtwoord van het paneel.</p>
+      <form id="login-form" class="stack">
+        <div class="field"><label for="password">Wachtwoord</label><input id="password" type="password" autocomplete="current-password" required></div>
+        <p class="error" id="login-error" role="alert" hidden></p>
+        <div class="actions"><button class="btn primary" type="submit">Inloggen</button></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- The panel -->
+  <div id="panel" hidden>
+    <header>
+      <div class="title"><h1>NAS Beheer</h1><span>Laboratoriumdiscounter · alleen bereikbaar op kantoor <button class="link" id="logout" type="button">Uitloggen</button></span></div>
+      <div class="tabs" role="tablist" aria-label="Kies een app" id="tabs"></div>
+    </header>
+    <main id="main"></main>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
