@@ -3,4 +3,5 @@ FROM docker:27-cli
 RUN apk add --no-cache nodejs
 WORKDIR /updater
 COPY updater/server.mjs ./server.mjs
-CMD ["node", "server.mjs"]
+# ENTRYPOINT, not CMD: the docker image would otherwise turn "node" into "docker node" (a Docker command)
+ENTRYPOINT ["node", "server.mjs"]
