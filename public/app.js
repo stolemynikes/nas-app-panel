@@ -1154,7 +1154,8 @@ async function checkVersion() {
     }
 }
 checkVersion();
-setInterval(checkVersion, 15_000);
+// Only while someone looks at the page: a forgotten tab in the background then costs the NAS nothing
+setInterval(() => { if (!document.hidden) checkVersion(); }, 15_000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
 
 // ---------- live data ----------
