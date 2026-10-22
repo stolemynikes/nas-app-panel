@@ -7,6 +7,7 @@ import { panelGuard, need } from '../panel/guard.js';
 //   GET  /api/updates                 per app: what runs and what is downloaded         (everyone)
 //   POST /api/updates/:app/check      download the newest version, nothing restarts      (admin)
 //   POST /api/updates/:app/update     start the downloaded version (that app restarts)   (admin)
+//   POST /api/updates/:app/start      turn a stopped app on (same command as update)     (admin)
 
 const NAMES = { facturen: 'Facturen', kasper: 'Kasper (chat)', paneel: 'NAS Beheer (dit paneel)' };
 
@@ -35,15 +36,21 @@ export function updatesRoute({ store, sessions, audit, updaterUrl, updaterKey, f
         }
     });
 
-    for (const action of ['check', 'update']) {
+    for (const action of ['check', 'update', 'start']) {
         router.post(`/updates/:app/${action}`, need('admin'), async (req, res) => {
             if (!configured) return res.status(400).json({ message: 'De updater is nog niet ingesteld (UPDATER_KEY, zie de handleiding).' });
             const app = String(req.params.app);
             if (!Object.hasOwn(NAMES, app)) return res.status(404).json({ message: 'Deze app kent de updater niet.' });
             try {
-                const data = await ask('POST', `/${action}/${app}`, 15 * 60_000);
+                // Aanzetten only for a stopped app: on a running one the same command could start a new version unasked
+                if (action === 'start') {
+                    const { apps } = await ask('GET', '/status', 60_000);
+                    if (apps.find((a) => a.app === app)?.started) return res.status(409).json({ message: `${NAMES[app]} staat al aan.` });
+                }
+                const data = await ask('POST', `/${action === 'start' ? 'update' : action}/${app}`, 15 * 60_000);
                 const version = data.status?.running || data.status?.newest;
-                if (action === 'update') audit.add(req.user, `${NAMES[app]} bijgewerkt`, version ? `${version.message || ''} (${String(version.revision || '').slice(0, 7)})`.trim() : '');
+                if (action === 'start') audit.add(req.user, `${NAMES[app]} aangezet`, '');
+                else if (action === 'update') audit.add(req.user, `${NAMES[app]} bijgewerkt`, version ? `${version.message || ''} (${String(version.revision || '').slice(0, 7)})`.trim() : '');
                 else audit.add(req.user, `Nieuwe versie gezocht voor ${NAMES[app]}`, data.status?.updateReady ? 'nieuwe versie gevonden' : 'geen nieuwe versie');
                 res.json({ ok: true, status: { ...data.status, name: NAMES[app] } });
             } catch (error) {

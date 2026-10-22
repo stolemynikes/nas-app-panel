@@ -1,9 +1,10 @@
 // The updater: the only part of NAS Beheer that may use Docker on the NAS. It does three fixed things for
 // the apps in UPDATE_APPS, and only when the panel asks with the right key:
 //
-//   GET  /status          per app: the version that runs, and the newest version that is downloaded
+//   GET  /status          per app: the version that runs, the newest version that is downloaded, and whether it is on
 //   POST /check/:app      download the newest version from GitHub (ghcr.io); nothing restarts
-//   POST /update/:app     start the downloaded version (only that app restarts; .env, data and folders stay)
+//   POST /update/:app     start the downloaded version (only that app restarts; .env, data and folders stay).
+//                         The panel also uses this for "Aanzetten": the same command starts a stopped app.
 //
 // Nothing from a request ever goes into a command: the app name is looked up in the fixed list, and the
 // commands are fixed. Only reachable inside the Docker network nas-apps (no ports), with UPDATER_KEY.
@@ -60,7 +61,8 @@ const versionOf = (image) => (image ? {
 } : null);
 
 async function appStatus(id, app) {
-    const containerId = (await run('docker', compose(app, 'ps', '-q', app.service), { timeoutMs: 30_000 }).catch(() => '')).trim().split('\n')[0];
+    // -a: also a stopped container, so the panel can offer "Aanzetten"
+    const containerId = (await run('docker', compose(app, 'ps', '-a', '-q', app.service), { timeoutMs: 30_000 }).catch(() => '')).trim().split('\n')[0];
     const container = containerId ? await inspect(containerId) : null;
     const imageName = container?.Config?.Image || null;
     const running = container ? versionOf(await inspect(container.Image)) : null;
@@ -69,6 +71,7 @@ async function appStatus(id, app) {
         app: id,
         image: imageName,
         fromGithub: Boolean(imageName && imageName.startsWith('ghcr.io/')),
+        started: Boolean(container?.State?.Running),
         running,
         newest,
         updateReady: Boolean(running && newest && running.id !== newest.id),

@@ -164,7 +164,13 @@ async function drawMain() {
     if (!app.reachable) {
         return main.replaceChildren(h('section', { class: 'card' },
             h('div', { class: 'lead' }, icon('bad', 'big'), h('div', {}, h('h2', {}, `${app.name} is niet bereikbaar`), h('p', {}, app.problem))),
-            h('div', { class: 'actions' }, ...actionButton('Opnieuw kijken', async () => { await refresh(); return { message: 'Bijgewerkt.' }; }))));
+            h('div', { class: 'actions' },
+                ...(can('admin') ? actionButton('Aanzetten', async () => {
+                    expectRestart(app.id);
+                    await api(`/api/updates/${app.id}/start`, { method: 'POST' });
+                    return { message: 'Aangezet. De app start nu op, dat duurt even.' };
+                }, { kind: 'primary', after: () => setTimeout(refresh, 5000) }) : []),
+                ...actionButton('Opnieuw kijken', async () => { await refresh(); return { message: 'Bijgewerkt.' }; }))));
     }
     if (view === 'settings') return drawSettings(app, seg);
     if (view === 'log') return drawLog(app, seg);

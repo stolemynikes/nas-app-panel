@@ -19,10 +19,11 @@ async function startPanel() {
     const sessions = createSessions({ secret: () => store.sessionSecret, hours: 1 });
     const audit = createAudit(path.join(dir, 'audit'));
     const calls = [];
+    const facturen = { started: true };
     const version = (id, message) => ({ id, revision: 'abcdef1234567', created: '2026-10-16T12:00:00Z', message });
     const fetchFn = async (url, options) => {
         calls.push({ url, method: options.method, auth: options.headers.authorization });
-        if (url.endsWith('/status')) return new Response(JSON.stringify({ apps: [{ app: 'facturen', running: version('a', 'oud'), newest: version('b', 'Nieuwe layout'), updateReady: true, fromGithub: true }] }));
+        if (url.endsWith('/status')) return new Response(JSON.stringify({ apps: [{ app: 'facturen', running: version('a', 'oud'), newest: version('b', 'Nieuwe layout'), updateReady: true, fromGithub: true, started: facturen.started }] }));
         return new Response(JSON.stringify({ ok: true, status: { app: 'facturen', running: version('b', 'Nieuwe layout'), updateReady: false } }));
     };
     const server = createServer({ store, sessions, audit, updater: { url: 'http://nas-beheer-updater:8090', key: UPDATER_KEY, fetchFn } }).listen(0);
@@ -30,7 +31,7 @@ async function startPanel() {
     const base = `http://127.0.0.1:${server.address().port}`;
     const login = async (name, password) => (await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password }) })).headers.get('set-cookie').split(';')[0];
     const as = (cookie) => (method, url, body) => fetch(`${base}${url}`, { method, headers: { cookie, 'x-panel': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    return { store, calls, login, as, audit, close: () => server.close() };
+    return { store, calls, facturen, login, as, audit, close: () => server.close() };
 }
 
 test('updater: only well-formed app names, nothing else gets into a command', () => {
@@ -62,6 +63,29 @@ test('updates: everyone can see, only a beheerder can download or start a versio
         assert.equal(p.calls.at(-1).auth, `Bearer ${UPDATER_KEY}`);
         assert.ok(JSON.stringify(p.audit.read()).includes('Facturen bijgewerkt'));
         assert.ok(JSON.stringify(p.audit.read()).includes('Nieuwe layout (abcdef1)'));
+    } finally {
+        p.close();
+    }
+});
+
+test('aanzetten: only a beheerder, only a stopped app, with the same fixed updater command; it goes in the action log', async () => {
+    const p = await startPanel();
+    try {
+        const admin = p.as(await p.login('beheerder', PASSWORD));
+        await admin('POST', '/api/users', { name: 'piet', role: 'staff', password: 'tijdelijk-wachtwoord' });
+        await p.as(await p.login('piet', 'tijdelijk-wachtwoord'))('POST', '/api/me/password', { current: 'tijdelijk-wachtwoord', next: 'piet-eigen-wachtwoord' });
+        const staff = p.as(await p.login('piet', 'piet-eigen-wachtwoord'));
+
+        // Running: refused, so it can never start a new version unasked
+        assert.equal((await admin('POST', '/api/updates/facturen/start')).status, 409);
+        assert.equal(p.calls.filter((c) => c.method === 'POST').length, 0);
+
+        p.facturen.started = false;
+        assert.equal((await staff('POST', '/api/updates/facturen/start')).status, 403);
+        assert.equal((await admin('POST', '/api/updates/onbekend/start')).status, 404);
+        assert.equal((await admin('POST', '/api/updates/facturen/start')).status, 200);
+        assert.equal(p.calls.at(-1).url, 'http://nas-beheer-updater:8090/update/facturen');
+        assert.ok(JSON.stringify(p.audit.read()).includes('Facturen aangezet'));
     } finally {
         p.close();
     }
