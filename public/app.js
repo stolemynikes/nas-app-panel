@@ -798,10 +798,22 @@ function updatesCard() {
                     actions.prepend(update);
                     actions.append(updateMessage);
                 }
+                if (a.started === false) {
+                    const [start, startMessage] = actionButton('Aanzetten', async () => {
+                        if (a.app !== 'paneel') expectRestart(a.app);
+                        await api(`/api/updates/${a.app}/start`, { method: 'POST' });
+                        setTimeout(load, 1500);
+                        return { message: 'Aangezet.' };
+                    }, { kind: 'primary' });
+                    actions.prepend(start);
+                    actions.append(startMessage);
+                }
             }
-            return h('li', {}, h('span', { class: `mode ${a.updateReady ? 'test' : 'live'}` }, a.updateReady ? 'NIEUW' : 'ACTUEEL'),
+            const off = a.started === false;
+            return h('li', {}, h('span', { class: `mode ${off ? 'test' : a.updateReady ? 'test' : 'live'}` }, off ? 'UIT' : a.updateReady ? 'NIEUW' : 'ACTUEEL'),
                 h('div', { class: 'stack' },
                     h('div', {}, h('b', {}, a.name),
+                        off && a.stopped?.length ? h('span', { class: 'block c-warn' }, `Staat uit: ${a.stopped.join(', ')}`) : null,
                         h('span', {}, `Nu: ${describe(a.running)}`),
                         a.updateReady ? h('span', { class: 'block' }, `Klaar om te starten: ${describe(a.newest)}`) : null,
                         a.fromGithub ? null : h('span', { class: 'block c-warn' }, 'Draait nog een zelf gebouwde versie: na de eerste keer "Bijwerken" komt hij van GitHub.')),

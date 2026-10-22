@@ -3,8 +3,9 @@
 //
 //   GET  /status          per app: the version that runs, the newest version that is downloaded, and whether it is on
 //   POST /check/:app      download the newest version from GitHub (ghcr.io); nothing restarts
-//   POST /update/:app     start the downloaded version (only that app restarts; .env, data and folders stay).
-//                         The panel also uses this for "Aanzetten": the same command starts a stopped app.
+//   POST /update/:app     start the downloaded version (only that app restarts; .env, data and folders stay),
+//                         then start whatever else of the project is off (e.g. the tunnel)
+//   POST /start/:app      only start what is off (app and/or tunnel); running containers are never touched
 //
 // Nothing from a request ever goes into a command: the app name is looked up in the fixed list, and the
 // commands are fixed. Only reachable inside the Docker network nas-apps (no ports), with UPDATER_KEY.
@@ -67,11 +68,20 @@ async function appStatus(id, app) {
     const imageName = container?.Config?.Image || null;
     const running = container ? versionOf(await inspect(container.Image)) : null;
     const newest = imageName ? versionOf(await inspect(imageName)) : null;
+    // Every container of the project (the app and its tunnel): which ones are off
+    const ids = (await run('docker', compose(app, 'ps', '-a', '-q'), { timeoutMs: 30_000 }).catch(() => '')).trim().split('\n').filter(Boolean);
+    const stopped = [];
+    for (const containerOfProject of ids) {
+        const data = await inspect(containerOfProject);
+        if (!data?.State?.Running) stopped.push(String(data?.Name || containerOfProject).replace(/^\//, ''));
+    }
     return {
         app: id,
         image: imageName,
         fromGithub: Boolean(imageName && imageName.startsWith('ghcr.io/')),
-        started: Boolean(container?.State?.Running),
+        // shortcut: a container that was never created does not count as off; "Aanzetten" would still create it
+        started: Boolean(container?.State?.Running) && !stopped.length,
+        stopped,
         running,
         newest,
         updateReady: Boolean(running && newest && running.id !== newest.id),
@@ -97,7 +107,7 @@ async function handle(req, res) {
         return send(200, { apps, busy });
     }
     const app = Object.hasOwn(APPS, id || '') ? APPS[id] : null;
-    if (req.method !== 'POST' || !['check', 'update'].includes(action) || !app) return send(404, { message: 'Not found' });
+    if (req.method !== 'POST' || !['check', 'update', 'start'].includes(action) || !app) return send(404, { message: 'Not found' });
     if (busy) return send(409, { message: `Er loopt al een update (${busy}). Probeer het zo opnieuw.` });
 
     busy = `${action} ${id}`;
@@ -107,8 +117,11 @@ async function handle(req, res) {
             console.log(`Checked ${id}: newest version downloaded`);
         } else {
             // --no-build: never build on the NAS, only start the downloaded version
-            await run('docker', compose(app, 'up', '-d', '--no-build', app.service));
-            console.log(`Updated ${id}`);
+            if (action === 'update') await run('docker', compose(app, 'up', '-d', '--no-build', app.service));
+            // Then start whatever of the project is off (e.g. the tunnel). --no-recreate: running containers are
+            // left alone, so a running tunnel keeps its address and the updater never replaces itself
+            await run('docker', compose(app, 'up', '-d', '--no-build', '--no-recreate'));
+            console.log(action === 'update' ? `Updated ${id}` : `Started ${id}`);
         }
         return send(200, { ok: true, status: await appStatus(id, app) });
     } catch (error) {

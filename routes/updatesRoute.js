@@ -7,7 +7,7 @@ import { panelGuard, need } from '../panel/guard.js';
 //   GET  /api/updates                 per app: what runs and what is downloaded         (everyone)
 //   POST /api/updates/:app/check      download the newest version, nothing restarts      (admin)
 //   POST /api/updates/:app/update     start the downloaded version (that app restarts)   (admin)
-//   POST /api/updates/:app/start      turn a stopped app on (same command as update)     (admin)
+//   POST /api/updates/:app/start      turn on what is off (app and/or tunnel)            (admin)
 
 const NAMES = { facturen: 'Facturen', kasper: 'Kasper (chat)', paneel: 'NAS Beheer (dit paneel)' };
 
@@ -42,12 +42,11 @@ export function updatesRoute({ store, sessions, audit, updaterUrl, updaterKey, f
             const app = String(req.params.app);
             if (!Object.hasOwn(NAMES, app)) return res.status(404).json({ message: 'Deze app kent de updater niet.' });
             try {
-                // Aanzetten only for a stopped app: on a running one the same command could start a new version unasked
                 if (action === 'start') {
                     const { apps } = await ask('GET', '/status', 60_000);
                     if (apps.find((a) => a.app === app)?.started) return res.status(409).json({ message: `${NAMES[app]} staat al aan.` });
                 }
-                const data = await ask('POST', `/${action === 'start' ? 'update' : action}/${app}`, 15 * 60_000);
+                const data = await ask('POST', `/${action}/${app}`, 15 * 60_000);
                 const version = data.status?.running || data.status?.newest;
                 if (action === 'start') audit.add(req.user, `${NAMES[app]} aangezet`, '');
                 else if (action === 'update') audit.add(req.user, `${NAMES[app]} bijgewerkt`, version ? `${version.message || ''} (${String(version.revision || '').slice(0, 7)})`.trim() : '');

@@ -84,7 +84,7 @@ test('aanzetten: only a beheerder, only a stopped app, with the same fixed updat
         assert.equal((await staff('POST', '/api/updates/facturen/start')).status, 403);
         assert.equal((await admin('POST', '/api/updates/onbekend/start')).status, 404);
         assert.equal((await admin('POST', '/api/updates/facturen/start')).status, 200);
-        assert.equal(p.calls.at(-1).url, 'http://nas-beheer-updater:8090/update/facturen');
+        assert.equal(p.calls.at(-1).url, 'http://nas-beheer-updater:8090/start/facturen');
         assert.ok(JSON.stringify(p.audit.read()).includes('Facturen aangezet'));
     } finally {
         p.close();
