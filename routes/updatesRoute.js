@@ -9,7 +9,7 @@ import { panelGuard, need } from '../panel/guard.js';
 //   POST /api/updates/:app/update     start the downloaded version (that app restarts)   (admin)
 //   POST /api/updates/:app/start      turn on what is off (app and/or tunnel)            (admin)
 
-const NAMES = { facturen: 'Facturen', kasper: 'Kasper (chat)', paneel: 'NAS Beheer (dit paneel)' };
+const NAMES = { facturen: 'Facturen', kasper: 'Kasper (chat)', claudesuite: 'ClaudeSuite', paneel: 'NAS Beheer (dit paneel)' };
 
 export function updatesRoute({ store, sessions, audit, updaterUrl, updaterKey, fetchFn = fetch }) {
     const router = express.Router();
