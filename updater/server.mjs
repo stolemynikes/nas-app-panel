@@ -117,7 +117,12 @@ async function handle(req, res) {
             console.log(`Checked ${id}: newest version downloaded`);
         } else {
             // --no-build: never build on the NAS, only start the downloaded version
-            if (action === 'update') await run('docker', compose(app, 'up', '-d', '--no-build', app.service));
+            if (action === 'update') {
+                // Remove the old container first: replacing it in place gives it a temporary "<id>_name" for a moment,
+                // and Container Manager keeps showing that name afterwards. The next line makes the new one.
+                await run('docker', compose(app, 'rm', '-s', '-f', app.service));
+                await run('docker', compose(app, 'up', '-d', '--no-build', app.service));
+            }
             // Then start whatever of the project is off (e.g. the tunnel). --no-recreate: running containers are
             // left alone, so a running tunnel keeps its address and the updater never replaces itself
             await run('docker', compose(app, 'up', '-d', '--no-build', '--no-recreate'));
