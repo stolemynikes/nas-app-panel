@@ -201,6 +201,19 @@ Eenmalig instellen:
 
 > De updater (container `nas-beheer-updater`) is het enige onderdeel dat Docker op de NAS mag bedienen. Hij doet niets uit zichzelf, heeft geen poort naar buiten, werkt alleen met de updatersleutel en kent alleen Facturen, Kasper en het paneel.
 
+**Iets bijwerken via SSH** (bijvoorbeeld de updater zelf, want die vervangt zichzelf niet): haal de oude containers eerst weg
+met `rm`, anders laat Container Manager namen met cijfers ervoor zien (`d19374130190_nas-beheer`). Voor het paneel:
+
+```
+cd /volume1/docker/nas-beheer
+sudo /usr/local/bin/docker compose -p nas-beheer pull
+sudo /usr/local/bin/docker compose -p nas-beheer rm -s -f nas-beheer updater
+sudo /usr/local/bin/docker compose -p nas-beheer up -d --no-build
+```
+
+Voor een andere app: dezelfde vier regels met de map en het project van die app (`factuur-app`, `claudesuite`, ...), en bij
+`rm` de naam van de app-dienst. **Niet** de tunnel (`factuur-tunnel`): een snelle tunnel krijgt dan een nieuw adres.
+
 ---
 
 ## Deel 2 · Het paneel gebruiken
