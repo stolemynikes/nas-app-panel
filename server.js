@@ -11,11 +11,33 @@ import { generalRoute } from './routes/generalRoute.js';
 import { usersRoute } from './routes/usersRoute.js';
 import { updatesRoute } from './routes/updatesRoute.js';
 
+// 127.x, 10.x, 172.16-31.x, 192.168.x, ::1, fc00::/7 (also as ::ffff:a.b.c.d), and Tailscale 100.64-127.x.
+// Everything else comes from the internet (e.g. a port forwarded by mistake in the router) and is refused.
+export function isPrivateAddress(address) {
+    const ip = String(address || '').replace(/^::ffff:/, '');
+    if (ip === '::1') return true;
+    if (/^f[cd][0-9a-f]{2}:/i.test(ip)) return true;
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+    const [a, b] = parts;
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+}
+
+const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray', 'ngrok-trace-id', 'tailscale-funnel-request'];
+
 // The Express app, apart from index.js so the tests can use it without starting a server
 export function createServer({ store, sessions, audit, callAppFn, updater = {}, ngrok = { configured: false }, baseDomain = 'laboratoriumdiscounter.nl', checkAddressFn }) {
     const app = express();
     app.disable('x-powered-by');
     const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+
+    // Office network and Tailscale only, also when port 8081 is reachable from the internet
+    app.use((req, res, next) => {
+        if (PROXY_HEADERS.some((name) => req.get(name)) || !isPrivateAddress(req.socket.remoteAddress)) {
+            return res.status(403).send('Alleen op het kantoornetwerk.');
+        }
+        next();
+    });
 
     // Protection headers: only our own files, no framing, no passing on of addresses
     app.use((req, res, next) => {

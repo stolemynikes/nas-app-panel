@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { createStore, hashPassword, verifyPassword } from '../panel/store.js';
 import { createSessions } from '../panel/session.js';
-import { createServer } from '../server.js';
+import { createServer, isPrivateAddress } from '../server.js';
 import { callApp } from '../panel/appClient.js';
 import { createAudit } from '../panel/audit.js';
 
@@ -66,6 +66,11 @@ test('store: a new key in .env wins, and the password can be reset', async () =>
     assert.equal(again.app('facturen').key, newKey);
     assert.ok(again.checkLogin('beheerder', 'nieuw-wachtwoord-9'));
     assert.equal(again.checkLogin('beheerder', PASSWORD), null);
+});
+
+test('only the office network and Tailscale, never the internet', () => {
+    for (const ip of ['127.0.0.1', '::1', '::ffff:192.168.2.41', '10.0.0.5', '172.20.0.3', '100.74.84.99', 'fd7a:115c:a1e0::1']) assert.ok(isPrivateAddress(ip), ip);
+    for (const ip of ['77.168.241.89', '8.8.8.8', '172.32.0.1', '100.128.0.1', '::ffff:1.2.3.4', '2001:db8::1', '']) assert.ok(!isPrivateAddress(ip), ip);
 });
 
 test('without login: no API, no logbook', async () => {
